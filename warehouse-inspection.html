@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Осмотр склада</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f3f4f6; color: #111827;
+  }
+  .app { max-width: 720px; margin: auto; padding: 16px 14px 32px; }
+  h1 { font-size: 24px; margin: 4px 0 16px; }
+  h2 { font-size: 17px; margin: 24px 0 10px; }
+  .card {
+    background: white; border-radius: 14px; padding: 14px; margin-bottom: 12px;
+    box-shadow: 0 1px 4px #0001;
+  }
+  label { display:block; font-weight: 600; font-size: 15px; margin-bottom: 8px; }
+  input, textarea {
+    width: 100%; border: 1px solid #d1d5db; border-radius: 10px;
+    padding: 12px; font: inherit; font-size: 16px; background: #fff;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  input:focus, textarea:focus { outline: 2px solid #9ca3af; border-color: #6b7280; }
+  .choices { display:flex; flex-wrap:wrap; gap:8px; }
+  button {
+    border: 0; border-radius: 10px; padding: 11px 14px; font: inherit;
+    font-weight: 600; cursor:pointer; background:#e5e7eb; color:#111827;
+  }
+  button.selected { background:#111827; color:white; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
+  .primary { background:#111827; color:white; }
+  .danger { background:#fee2e2; color:#991b1b; }
+  .saved {
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 0; border-bottom:1px solid #e5e7eb;
+  }
+  .saved:last-child { border-bottom:0; }
+  .saved small { display:block; color:#6b7280; margin-top:2px; }
+  .hidden { display:none; }
+  .muted { color:#6b7280; font-size:14px; }
+  .status { min-height:20px; color:#166534; font-size:14px; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Осмотр склада</h1>
+
+  <div class="card">
+    <label for="warehouse">Склад / компания</label>
+    <input id="warehouse" placeholder="Например: Склад №1, ПИК">
+  </div>
+
+  <h2>Работа</h2>
+
+  <div id="questions"></div>
+
+  <h2>Условия</h2>
+  <div id="conditions"></div>
+
+  <div class="card">
+    <label>Общее впечатление</label>
+    <div class="choices" id="rating">
+      <button data-value="1">⭐</button><button data-value="2">⭐⭐</button>
+      <button data-value="3">⭐⭐⭐</button><button data-value="4">⭐⭐⭐⭐</button>
+      <button data-value="5">⭐⭐⭐⭐⭐</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="comment">Общий комментарий</label>
+    <textarea id="comment" placeholder="Что понравилось / не понравилось, что сказал руководитель..."></textarea>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="save">Сохранить склад</button>
+    <button id="new">Новый склад</button>
+    <button class="danger" id="clear">Очистить</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <h2>Сохранённые склады</h2>
+  <div class="card" id="savedList"><span class="muted">Пока ничего нет.</span></div>
+</div>
+
+<script>
+const questions = [
+  ["day", "1. Как выглядит обычный рабочий день на этой должности?", "text"],
+  ["schedule", "2. Какой фактический график?", "text"],
+  ["overtime", "3. Есть ли переработки?", "choice", ["Нет", "Иногда", "Регулярно"]],
+  ["control", "4. Насколько жестко контролируется время прихода/ухода?", "text"],
+  ["lunch", "5. Есть ли фиксированный обеденный перерыв?", "text"],
+  ["volume", "6. Бывают ли ситуации, когда физически невозможно выполнить весь объём за смену?", "choice", ["Нет", "Иногда", "Часто"]],
+  ["probation", "7. Есть ли испытательный срок?", "text"],
+  ["pace", "8. Какой объём и темп работы?", "text"],
+  ["breaks", "9. Есть ли перерывы помимо обеденного?", "text"],
+];
+
+const conditions = [
+  ["clothes", "10. Что со спецодеждой/обувью?", "text"],
+  ["net", "11. Сколько получается на руки?", "money"],
+  ["contract", "12. Какая сумма будет прописана в трудовом договоре?", "money"],
+  ["food", "13. Где сотрудники обедают?", "text"],
+  ["canteen", "14. Есть ли нормальная столовая/комната отдыха?", "choice", ["Да", "Нет"]],
+  ["locker", "15. Есть ли раздевалка?", "choice", ["Да", "Нет"]],
+  ["cabinet", "16. Есть ли шкафчики?", "choice", ["Да", "Нет"]],
+  ["shower", "17. Есть ли душ?", "choice", ["Да", "Нет"]],
+];
+
+const all = [...questions, ...conditions];
+
+function render(list, rootId) {
+  const root = document.getElementById(rootId);
+  list.forEach(([key, text, type, options]) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const label = document.createElement("label");
+    label.textContent = text;
+    card.appendChild(label);
+
+    if (type === "choice") {
+      const wrap = document.createElement("div");
+      wrap.className = "choices";
+      options.forEach(value => {
+        const b = document.createElement("button");
+        b.type = "button"; b.textContent = value; b.dataset.key = key; b.dataset.value = value;
+        b.onclick = () => {
+          wrap.querySelectorAll("button").forEach(x => x.classList.remove("selected"));
+          b.classList.add("selected");
+        };
+        wrap.appendChild(b);
+      });
+      card.appendChild(wrap);
+    } else {
+      const input = type === "money" ? document.createElement("input") : document.createElement("textarea");
+      if (type === "money") { input.inputMode = "decimal"; input.placeholder = "₽"; }
+      else input.placeholder = "Ответ / комментарий";
+      input.id = key;
+      card.appendChild(input);
+    }
+    root.appendChild(card);
+  });
+}
+
+render(questions, "questions");
+render(conditions, "conditions");
+
+let currentId = null;
+let rating = "";
+
+document.querySelectorAll("#rating button").forEach(b => {
+  b.onclick = () => {
+    rating = b.dataset.value;
+    document.querySelectorAll("#rating button").forEach(x => x.classList.remove("selected"));
+    b.classList.add("selected");
+  };
+});
+
+function getValue(key, type) {
+  if (type === "choice") {
+    return [...document.querySelectorAll(`[data-key="${key}"].selected`)].map(x => x.dataset.value)[0] || "";
+  }
+  return document.getElementById(key)?.value || "";
+}
+
+function collect() {
+  const data = {
+    id: currentId || Date.now().toString(),
+    warehouse: document.getElementById("warehouse").value.trim() || "Без названия",
+    rating,
+    comment: document.getElementById("comment").value,
+    answers: {}
+  };
+  all.forEach(([key, , type]) => data.answers[key] = getValue(key, type));
+  return data;
+}
+
+function reset() {
+  currentId = null; rating = "";
+  document.getElementById("warehouse").value = "";
+  document.getElementById("comment").value = "";
+  all.forEach(([key, , type]) => {
+    if (type !== "choice") document.getElementById(key).value = "";
+  });
+  document.querySelectorAll(".choices button").forEach(b => b.classList.remove("selected"));
+  setStatus("");
+}
+
+function setStatus(text) {
+  document.getElementById("status").textContent = text;
+}
+
+function getSaved() {
+  return JSON.parse(localStorage.getItem("warehouse-inspections") || "[]");
+}
+
+function save() {
+  const data = collect();
+  const list = getSaved();
+  const index = list.findIndex(x => x.id === data.id);
+  if (index >= 0) list[index] = data; else list.unshift(data);
+  localStorage.setItem("warehouse-inspections", JSON.stringify(list));
+  currentId = data.id;
+  renderSaved();
+  setStatus("Сохранено ✓");
+}
+
+function load(id) {
+  const data = getSaved().find(x => x.id === id);
+  if (!data) return;
+  reset();
+  currentId = data.id;
+  document.getElementById("warehouse").value = data.warehouse;
+  document.getElementById("comment").value = data.comment || "";
+  rating = data.rating || "";
+  if (rating) document.querySelector(`#rating button[data-value="${rating}"]`)?.classList.add("selected");
+
+  all.forEach(([key, , type]) => {
+    if (type === "choice") {
+      const b = document.querySelector(`[data-key="${key}"][data-value="${data.answers[key]}"]`);
+      b?.classList.add("selected");
+    } else {
+      document.getElementById(key).value = data.answers[key] || "";
+    }
+  });
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function remove(id) {
+  localStorage.setItem("warehouse-inspections", JSON.stringify(getSaved().filter(x => x.id !== id)));
+  if (currentId === id) reset();
+  renderSaved();
+}
+
+function renderSaved() {
+  const root = document.getElementById("savedList");
+  const list = getSaved();
+  root.innerHTML = "";
+  if (!list.length) {
+    root.innerHTML = '<span class="muted">Пока ничего нет.</span>';
+    return;
+  }
+  list.forEach(x => {
+    const row = document.createElement("div");
+    row.className = "saved";
+    const info = document.createElement("div");
+    info.innerHTML = `<strong>${escapeHtml(x.warehouse)}</strong><small>${x.rating ? "Оценка: " + "⭐".repeat(Number(x.rating)) : "Без оценки"}</small>`;
+    const actions = document.createElement("div");
+    const edit = document.createElement("button"); edit.textContent = "Открыть"; edit.onclick = () => load(x.id);
+    const del = document.createElement("button"); del.textContent = "×"; del.className = "danger"; del.onclick = () => remove(x.id);
+    actions.append(edit, del);
+    row.append(info, actions);
+    root.appendChild(row);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+document.getElementById("save").onclick = save;
+document.getElementById("new").onclick = reset;
+document.getElementById("clear").onclick = () => {
+  if (confirm("Очистить текущую карточку?")) reset();
+};
+
+renderSaved();
+</script>
+</body>
+</html>
